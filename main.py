@@ -36,7 +36,7 @@ def getUserLocations(geoKey):
 def getLatLonFromAdd(address, geoKey):
     resp = requests.get('https://maps.googleapis.com/maps/api/geocode/json?address=' + address + '&key=' + geoKey).json()
 
-    print(resp)
+    # print(resp)
 
     lat = resp['results'][0]['geometry']['location']['lat']
     lon = resp['results'][0]['geometry']['location']['lng']
@@ -59,10 +59,36 @@ def getReqObject(start_loc,end_loc, access_token, prodID):
 def getPrice(r):
     data = r.json()
     print("Current price of Uber POOL is ", data['fare']['value'])
+    return data['fare']['value']
 
 
-def isBelowThreshold():
+def isBelowThreshold(currPrice, threshold):
+    if currPrice <= threshold:
+        print("Current price :", currPrice, " is less than the set threshold: ", threshold)
+        decision = input("Should I go ahead and book the cab?")
+        if decision == 'Y':
+            resp = bookCab()
+            #if resp == success, send an SMS notification
+
+            #sleep for 15 seconds, fetch the cab booked details and send an SMS with that info
+            details = getCabDetails()
+        else:
+            print("Okay, not booking the cab. Retrying in a while...")
+    else:
+        print("Current price :", currPrice, " is more than the set threshold: ", threshold)
+        print("Retrying in a while...")
+
+
+def notifyUser():
     pass
+
+def bookCab():
+    pass
+
+
+def getCabDetails():
+    pass
+
 
 if __name__ == '__main__':
     config_file = 'config.json'
@@ -71,4 +97,6 @@ if __name__ == '__main__':
     start_loc, end_loc = getUserLocations(configDict['geoKey'])
     reqObj = getReqObject(start_loc, end_loc, configDict['access_token'],'todo-prodID')
 
-    getPrice(reqObj)
+    currPrice = getPrice(reqObj)
+
+

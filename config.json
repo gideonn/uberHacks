@@ -1,3 +1,6 @@
 {
-
+  "access_token":"",
+  "geoKey":"",
+  "cell":"",
+  "twilio_token":""
 }
