@@ -2,5 +2,6 @@
   "access_token":"",
   "geoKey":"",
   "cell":"",
-  "twilio_token":""
+  "twilio_token":"",
+  "freq_check":60
 }
