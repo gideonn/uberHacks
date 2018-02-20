@@ -11,19 +11,20 @@ class Uber:
     def __init__(self, config_file):
         self.lat = 0
         self.lon = 0
-        self.start_loc = []
-        self.end_loc = []
-        self.configDict = self.loadConfig(config_file)
         self.currPrice = 0.0
         self.threshold = 0.0
+        self.start_loc = []
+        self.end_loc = []
         self.fare_id = ""
         self.product_id = ""
+        self.cabsDict = {}
+        self.configDict = self.loadConfig(config_file)
         self.TwilioClient = Client(self.configDict['twilio_account_sid'], self.configDict['twilio_auth_token'])
 
 
     def loadConfig(self, config_file):
         try:
-            config = json.load(open('config1.json'))
+            config = json.load(open(config_file))
             print("Config loaded!")
         except:
             print("Couldn't load config. Exiting...")
@@ -47,19 +48,29 @@ class Uber:
         add2 = self.urlify(input("Enter the \"TO\" address: "))
 
         self.threshold = float(input("Enter the threshold amount:"))
+
         from_lat, from_lon = self.getLatLonFromAdd(add1)
         to_lat, to_lon = self.getLatLonFromAdd(add2)
 
         self.start_loc = [from_lat, from_lon]
         self.end_loc = [to_lat, to_lon]
 
+        print("Fetching available cabs in the area...")
+        availCabs = self.getAllCabs()
+        print('*' * 10, "Select the Cab Type:", '*' * 10)
+        for cab_type in self.cabsDict.keys():
+            print(cab_type)
+        print('*' *50)
+        reqCabType = str.lower(input("Enter the name of the cab that you want to request: "))
+        self.product_id = self.cabsDict[reqCabType]
+
         return True
 
 
     def getLatLonFromAdd(self, address):
-        resp = requests.get('https://maps.googleapis.com/maps/api/geocode/json?address=' + address + '&key=' + self.configDict['geoKey']).json()
-
-        # print(resp)
+        resp = requests.get(
+            'https://maps.googleapis.com/maps/api/geocode/json?address=' + address + '&key=' + self.configDict[
+                'geoKey']).json()
 
         lat = resp['results'][0]['geometry']['location']['lat']
         lon = resp['results'][0]['geometry']['location']['lng']
@@ -68,11 +79,25 @@ class Uber:
         return lat, lon
 
 
-    #loc1 and loc2 are list. Indexes 0 and 1 are latitude and longitude
-    def getPrice(self, prodID):
-        headers = {'Authorization': "Bearer " + self.configDict['uber_access_token'],'Accept - Language':'en_US',
-                   'Content-Type':'application/json'}
-        payload = {'product_id':'712b9d70-1254-4268-a275-33e487a4a54c','seats':'1','start_latitude': self.start_loc[0], 'start_longitude': self.start_loc[1],'end_latitude':self.end_loc[0],'end_longitude':self.end_loc[1]}
+    def getAllCabs(self):
+        headers = {'Authorization': "Bearer " + self.configDict['uber_access_token'], 'Accept - Language': 'en_US',
+                   'Content-Type': 'application/json'}
+        url = "https://api.uber.com/v1.2/products?latitude={}&longitude={}".format(self.start_loc[0], self.start_loc[1])
+        print(url)
+        r = requests.get(url, headers=headers)
+        print(r.text)
+        data = r.json()
+
+        for entries in data['products']:
+            self.cabsDict[str.lower(entries['display_name'])] = entries['product_id']
+
+
+    def getPrice(self):
+        headers = {'Authorization': "Bearer " + self.configDict['uber_access_token'], 'Accept - Language': 'en_US',
+                   'Content-Type': 'application/json'}
+        payload = {'product_id': self.product_id, 'seats': '1',
+                   'start_latitude': self.start_loc[0], 'start_longitude': self.start_loc[1],
+                   'end_latitude': self.end_loc[0], 'end_longitude': self.end_loc[1]}
 
         try:
             r = requests.post("https://api.uber.com/v1.2/requests/estimate", data=json.dumps(payload), headers=headers)
@@ -95,24 +120,28 @@ class Uber:
             while True:
                 if self.currPrice <= self.threshold:
                     print("Current price : $", self.currPrice, " is less than the set threshold: $", self.threshold)
-                    message = "Current price : $" + str(self.currPrice) + " is less than the set threshold: $" + str(self.threshold)
+                    message = "Current price : $" + str(self.currPrice) + " is less than the set threshold: $" + str(
+                        self.threshold)
                     self.notifyUser(message)
                     decision = input("Should I go ahead and book the cab?")
                     if decision == 'Y':
                         resp = self.confirmCab(self.product_id)
-                        #if resp == success, send an SMS notification
+                        # if resp == success, send an SMS notification
 
-                        #sleep for 15 seconds, fetch the cab booked details and send an SMS with that info
-                        details = self.getCabDetails()
+                        # sleep for 30 seconds, fetch the cab booked details and send an SMS with that info
+                        time.sleep(30)
+                        sts = self.getCabDetails()
+                        exit(0)
                     else:
                         print("Okay, not booking the cab. Retrying in a while...")
-                        #TODO
+                        # TODO
                         # print("Do you want to update the threshold value ?")
                         self.getPrice('')
-                        #Ask to update threshold value
+                        # Ask to update threshold value
                 else:
                     print("Current price :", self.currPrice, " is more than the set threshold: ", self.threshold)
-                    message = "Current price :" + str(self.currPrice) + " is more than the set threshold: " + str(self.threshold)
+                    message = "Current price :" + str(self.currPrice) + " is more than the set threshold: " + str(
+                        self.threshold)
                     self.notifyUser(message)
 
                     print("Retrying in a while...")
@@ -121,6 +150,7 @@ class Uber:
         except:
             print("Exception in checkAndBookCab")
             exit(0)
+
 
     def notifyUser(self, message):
         message = self.TwilioClient.messages.create(
@@ -153,24 +183,28 @@ class Uber:
         headers = {'Authorization': "Bearer " + self.configDict['uber_access_token']}
         try:
             r = requests.post("https://api.uber.com/v1.2/requests/current", headers=headers)
-            if r.status_code == 200:
-                data = r.json()
-                message = "Here are the details of the booking...\n Current booking status: {},\nSurge multiplier: {},\nDriver Phone: {},\nRating: {},\nName: {},\nCar Make: {},\nLicense Plate: {},\nPickup ETA: {}"\
-                    .format(data['status'], data['surge_multiplier'],data['driver']['phone_number'], data['driver']['rating'], data['driver']['name'], data['vehicle']['make'], data['vehicle']['license_plate'], data['pickup']['eta'])
+            data = r.json()
+            if data['status'] == 'accepted':
+                message = "Here are the details of the booking...\n Current booking status: {},\nSurge multiplier: {},\nDriver Phone: {},\nRating: {},\nName: {},\nCar Make: {},\nLicense Plate: {},\nPickup ETA: {}" \
+                    .format(data['status'], data['surge_multiplier'], data['driver']['phone_number'],
+                            data['driver']['rating'], data['driver']['name'], data['vehicle']['make'],
+                            data['vehicle']['license_plate'], data['pickup']['eta'])
                 self.notifyUser(message)
-
+            else:
+                print("Ride not confirmed yet, rechecking again...")
+                message = ""
+            return True
         except:
+            print("Something went wrong when fetching cab details, please check in your app.")
             exit(-1)
 
 
-
 if __name__ == '__main__':
-    config_file = 'config.json'
+    config_file = '../config/config1.json'
     # configDict = loadConfig(config_file)
 
     uber_inst = Uber(config_file)
     uber_inst.getUserLocationsAndThreshold()
-    uber_inst.getPrice('todo-prodID')
+    uber_inst.getPrice()
 
     uber_inst.checkAndBookCab()
-
