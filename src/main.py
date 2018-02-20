@@ -150,7 +150,17 @@ class Uber:
 
 
     def getCabDetails(self):
-        pass
+        headers = {'Authorization': "Bearer " + self.configDict['uber_access_token']}
+        try:
+            r = requests.post("https://api.uber.com/v1.2/requests/current", headers=headers)
+            if r.status_code == 200:
+                data = r.json()
+                message = "Here are the details of the booking...\n Current booking status: {},\nSurge multiplier: {},\nDriver Phone: {},\nRating: {},\nName: {},\nCar Make: {},\nLicense Plate: {},\nPickup ETA: {}"\
+                    .format(data['status'], data['surge_multiplier'],data['driver']['phone_number'], data['driver']['rating'], data['driver']['name'], data['vehicle']['make'], data['vehicle']['license_plate'], data['pickup']['eta'])
+                self.notifyUser(message)
+
+        except:
+            exit(-1)
 
 
 
