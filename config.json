@@ -1,7 +1,9 @@
 {
-  "access_token":"",
+  "uber_access_token":"",
   "geoKey":"",
-  "cell":"",
-  "twilio_token":"",
+  "cellno":"",
+  "twilio_cellno":"",
+  "twilio_account_sid": "",
+  "twilio_auth_token":"",
   "freq_check":60
 }

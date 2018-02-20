@@ -16,6 +16,9 @@ class Uber:
         self.configDict = self.loadConfig(config_file)
         self.currPrice = 0.0
         self.threshold = 0.0
+        self.fare_id = ""
+        self.product_id = ""
+        self.TwilioClient = Client(self.configDict['twilio_account_sid'], self.configDict['twilio_auth_token'])
 
 
     def loadConfig(self, config_file):
@@ -77,6 +80,7 @@ class Uber:
                 data = r.json()
                 print("Current price of Uber POOL is ", data['fare']['value'])
                 self.currPrice = float(data['fare']['value'])
+                self.fare_id = data['fare']['fare_id']
                 return r
             else:
                 print("Error in calling Uber cab lookup API")
@@ -91,9 +95,11 @@ class Uber:
             while True:
                 if self.currPrice <= self.threshold:
                     print("Current price : $", self.currPrice, " is less than the set threshold: $", self.threshold)
+                    message = "Current price : $" + str(self.currPrice) + " is less than the set threshold: $" + str(self.threshold)
+                    self.notifyUser(message)
                     decision = input("Should I go ahead and book the cab?")
                     if decision == 'Y':
-                        resp = self.confirmCab()
+                        resp = self.confirmCab(self.product_id)
                         #if resp == success, send an SMS notification
 
                         #sleep for 15 seconds, fetch the cab booked details and send an SMS with that info
@@ -106,18 +112,41 @@ class Uber:
                         #Ask to update threshold value
                 else:
                     print("Current price :", self.currPrice, " is more than the set threshold: ", self.threshold)
+                    message = "Current price :" + str(self.currPrice) + " is more than the set threshold: " + str(self.threshold)
+                    self.notifyUser(message)
+
                     print("Retrying in a while...")
                 print("Press Ctrl+C to exit anytime you want the script to stop...")
                 time.sleep(self.configDict['freq_check'])
         except:
+            print("Exception in checkAndBookCab")
             exit(0)
 
-    def notifyUser(cell, message):
-        pass
+    def notifyUser(self, message):
+        message = self.TwilioClient.messages.create(
+            to=self.configDict['cellno'],
+            from_=self.configDict['twilio_cellno'],
+            body=message)
 
 
     def confirmCab(self):
-        pass
+        headers = {'Authorization': "Bearer " + self.configDict['uber_access_token'],
+                   'Content-Type': 'application/json'}
+        payload = {'product_id': '712b9d70-1254-4268-a275-33e487a4a54c', 'start_latitude': self.start_loc[0],
+                   'start_longitude': self.start_loc[1], 'end_latitude': self.end_loc[0],
+                   'end_longitude': self.end_loc[1], 'seat_count': '1',
+                   'fare_id': self.fare_id}
+
+        try:
+            r = requests.post("https://api.uber.com/v1.2/requests", data=json.dumps(payload), headers=headers)
+            if r.status_code == 200:
+                message = "Booked the cab, fetching details..."
+                self.notifyUser(message)
+
+                data = r.json()
+
+        except:
+            exit(-1)
 
 
     def getCabDetails(self):
