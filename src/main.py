@@ -82,7 +82,7 @@ class Uber:
     def getAllCabs(self):
         headers = {'Authorization': "Bearer " + self.configDict['uber_access_token'], 'Accept - Language': 'en_US',
                    'Content-Type': 'application/json'}
-        url = "https://api.uber.com/v1.2/products?latitude={}&longitude={}".format(self.start_loc[0], self.start_loc[1])
+        url = "https://sandbox-api.uber.com/v1.2/products?latitude={}&longitude={}".format(self.start_loc[0], self.start_loc[1])
         print(url)
         r = requests.get(url, headers=headers)
         print(r.text)
@@ -99,57 +99,49 @@ class Uber:
                    'start_latitude': self.start_loc[0], 'start_longitude': self.start_loc[1],
                    'end_latitude': self.end_loc[0], 'end_longitude': self.end_loc[1]}
 
-        try:
-            r = requests.post("https://api.uber.com/v1.2/requests/estimate", data=json.dumps(payload), headers=headers)
-            if r.status_code == 200:
-                data = r.json()
-                print("Current price of Uber POOL is ", data['fare']['value'])
-                self.currPrice = float(data['fare']['value'])
-                self.fare_id = data['fare']['fare_id']
-                return r
-            else:
-                print("Error in calling Uber cab lookup API")
-                exit(-1)
-        except:
-            print("Couldn't call API, exiting...")
+        r = requests.post("https://sandbox-api.uber.com/v1.2/requests/estimate", data=json.dumps(payload), headers=headers)
+        if r.status_code == 200:
+            data = r.json()
+            print("Current price of Uber POOL is $", data['fare']['value'])
+            self.currPrice = float(data['fare']['value'])
+            self.fare_id = data['fare']['fare_id']
+            return r
+        else:
+            print("Error in calling Uber cab lookup API")
             exit(-1)
 
 
     def checkAndBookCab(self):
-        try:
-            while True:
-                if self.currPrice <= self.threshold:
-                    print("Current price : $", self.currPrice, " is less than the set threshold: $", self.threshold)
-                    message = "Current price : $" + str(self.currPrice) + " is less than the set threshold: $" + str(
-                        self.threshold)
-                    self.notifyUser(message)
-                    decision = input("Should I go ahead and book the cab?")
-                    if decision == 'Y':
-                        resp = self.confirmCab(self.product_id)
-                        # if resp == success, send an SMS notification
+        while True:
+            if self.currPrice <= self.threshold:
+                print("Current price : $", self.currPrice, " is less than the set threshold: $", self.threshold)
+                message = "Current price : $" + str(self.currPrice) + " is less than the set threshold: $" + str(
+                    self.threshold)
+                self.notifyUser(message)
+                decision = str.lower(input("Should I go ahead and book the cab(yes/no)? "))
+                if decision == 'y' or decision == 'yes':
+                    resp = self.confirmCab()
+                    # if resp == success, send an SMS notification
 
-                        # sleep for 30 seconds, fetch the cab booked details and send an SMS with that info
-                        time.sleep(30)
-                        sts = self.getCabDetails()
-                        exit(0)
-                    else:
-                        print("Okay, not booking the cab. Retrying in a while...")
-                        # TODO
-                        # print("Do you want to update the threshold value ?")
-                        self.getPrice('')
-                        # Ask to update threshold value
+                    # sleep for 30 seconds, fetch the cab booked details and send an SMS with that info
+                    print("Waiting 30s for the cab confirmation...")
+                    time.sleep(30)
+                    sts = self.getCabDetails()
                 else:
-                    print("Current price :", self.currPrice, " is more than the set threshold: ", self.threshold)
-                    message = "Current price :" + str(self.currPrice) + " is more than the set threshold: " + str(
-                        self.threshold)
-                    self.notifyUser(message)
+                    print("Okay, not booking the cab. Retrying in a while...")
+                    # TODO
+                    # print("Do you want to update the threshold value ?")
+                    self.getPrice()
+                    # Ask to update threshold value
+            else:
+                print("Current price :", self.currPrice, " is more than the set threshold: ", self.threshold)
+                message = "Current price :" + str(self.currPrice) + " is more than the set threshold: " + str(
+                    self.threshold)
+                self.notifyUser(message)
 
-                    print("Retrying in a while...")
-                print("Press Ctrl+C to exit anytime you want the script to stop...")
-                time.sleep(self.configDict['freq_check'])
-        except:
-            print("Exception in checkAndBookCab")
-            exit(0)
+                print("Retrying in a while...")
+            print("Press Ctrl+C to exit anytime you want the script to stop...")
+            time.sleep(self.configDict['freq_check'])
 
 
     def notifyUser(self, message):
@@ -167,36 +159,32 @@ class Uber:
                    'end_longitude': self.end_loc[1], 'seat_count': '1',
                    'fare_id': self.fare_id}
 
-        try:
-            r = requests.post("https://api.uber.com/v1.2/requests", data=json.dumps(payload), headers=headers)
-            if r.status_code == 200:
-                message = "Booked the cab, fetching details..."
-                self.notifyUser(message)
+        r = requests.post("https://sandbox-api.uber.com/v1.2/requests", data=json.dumps(payload), headers=headers)
+        print("DEBUG confirmCab", r.json())
+        if r.status_code == 200:
+            message = "Booked the cab, fetching details..."
+            self.notifyUser(message)
 
-                data = r.json()
-
-        except:
-            exit(-1)
+            data = r.json()
 
 
     def getCabDetails(self):
         headers = {'Authorization': "Bearer " + self.configDict['uber_access_token']}
-        try:
-            r = requests.post("https://api.uber.com/v1.2/requests/current", headers=headers)
-            data = r.json()
-            if data['status'] == 'accepted':
-                message = "Here are the details of the booking...\n Current booking status: {},\nSurge multiplier: {},\nDriver Phone: {},\nRating: {},\nName: {},\nCar Make: {},\nLicense Plate: {},\nPickup ETA: {}" \
-                    .format(data['status'], data['surge_multiplier'], data['driver']['phone_number'],
-                            data['driver']['rating'], data['driver']['name'], data['vehicle']['make'],
-                            data['vehicle']['license_plate'], data['pickup']['eta'])
-                self.notifyUser(message)
-            else:
-                print("Ride not confirmed yet, rechecking again...")
-                message = ""
-            return True
-        except:
-            print("Something went wrong when fetching cab details, please check in your app.")
-            exit(-1)
+
+        r = requests.get("https://sandbox-api.uber.com/v1.2/requests/current", headers=headers)
+        data = r.json()
+        print("DEBUG getCabDetails: ", data)
+        if data['status'] == 'accepted':
+            message = "Here are the details of the booking...\n Current booking status: {},\nSurge multiplier: {},\nDriver Phone: {},\nRating: {},\nName: {},\nCar Make: {},\nLicense Plate: {},\nPickup ETA: {}" \
+                .format(data['status'], data['surge_multiplier'], data['driver']['phone_number'],
+                        data['driver']['rating'], data['driver']['name'], data['vehicle']['make'],
+                        data['vehicle']['license_plate'], data['pickup']['eta'])
+            self.notifyUser(message)
+        else:
+            print("Ride not confirmed yet, rechecking again...")
+            message = "Ride not confirmed yet, rechecking again..."
+            self.notifyUser(message)
+        return True
 
 
 if __name__ == '__main__':
