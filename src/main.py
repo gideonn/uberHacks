@@ -21,7 +21,10 @@ class Uber:
         self.request_id = ""
         self.cabsDict = {}
         self.configDict = self.loadConfig(config_file)
+        print('*' *50)
         pprint(self.configDict)
+        print('*' *50)
+
         self.TwilioClient = Client(self.configDict['twilio_account_sid'], self.configDict['twilio_auth_token'])
 
 
@@ -86,9 +89,7 @@ class Uber:
         headers = {'Authorization': "Bearer " + self.configDict['uber_access_token'], 'Accept - Language': 'en_US',
                    'Content-Type': 'application/json'}
         url = "https://sandbox-api.uber.com/v1.2/products?latitude={}&longitude={}".format(self.start_loc[0], self.start_loc[1])
-        # print(url)
         r = requests.get(url, headers=headers)
-        # print(r.text)
         data = r.json()
 
         for entries in data['products']:
@@ -124,12 +125,13 @@ class Uber:
                 decision = str.lower(input("Should I go ahead and book the cab(yes/no)? "))
                 if decision == 'y' or decision == 'yes':
                     while True:
+                        self.getCabDetails()
                         resp = self.confirmCab()
                         # if resp == success, send an SMS notification
                         if resp is True:
                             # sleep for 30 seconds, fetch the cab booked details and send an SMS with that info
-                            print("Waiting 30s for the cab confirmation...")
-                            time.sleep(30)
+                            print("Waiting 60s for the driver to confirm cab...")
+                            time.sleep(60)
                             sts = self.getCabDetails()
                             break
                         else:
@@ -153,7 +155,7 @@ class Uber:
 
 
     def notifyUser(self, msg):
-        print("Value of notif: ".format(self.configDict['enable_notif']))
+        print("Value of notif: {}".format(self.configDict['enable_notif']))
         if self.configDict['enable_notif'] == "True":
             message = self.TwilioClient.messages.create(
                 to=self.configDict['cellno'],
@@ -161,6 +163,7 @@ class Uber:
                 body=msg)
         else:
             print("Notification not enabled in config. Message is: ".format(msg))
+
 
     def confirmCab(self):
         headers = {'Authorization': "Bearer " + self.configDict['uber_access_token'],
@@ -176,6 +179,7 @@ class Uber:
         data = r.json()
         pprint("DATA FOR CONFIRM CAB:")
         pprint(data)
+        print("CONFIRM_CAB_DEBUG | r.status_code: ", r.status_code)
         if r.status_code == 200:
             self.request_id = data['request_id']
             print("Request ID is: ", self.request_id)
@@ -183,8 +187,20 @@ class Uber:
             message = "Booked the cab, fetching details..."
             self.notifyUser(message)
             return True
-        elif data['errors'][0]['code'] == 'current_trip_exists':
-            self.getCabDetails()
+        elif r.status_code == 202:
+            self.request_id = data['request_id']
+            print("Request ID is: ", self.request_id)
+            print("Request is being processed...")
+            self.debug_acceptRide()
+            time.sleep(10)
+            return True
+        elif r.status_code == 409:
+            if data['errors'][0]['code'] == 'current_trip_exists':
+                # print(data['errors'][0]['title'])
+                message = "Couldn't book the cab, reason: " + data['errors'][0]['title']
+                self.notifyUser(message)
+                print(message + "\nExiting...")
+                exit(1)
         else:
             print("DEBUG | Book cab failed: ", data)
             return False
@@ -193,11 +209,14 @@ class Uber:
     def getCabDetails(self):
         headers = {'Authorization': "Bearer " + self.configDict['uber_access_token']}
 
-        while True:
-            r = requests.get("https://sandbox-api.uber.com/v1.2/requests/current", headers=headers)
-            data = r.json()
-            print("DEBUG getCabDetails: ", data)
+        r = requests.get("https://sandbox-api.uber.com/v1.2/requests/current", headers=headers)
+        data = r.json()
+        print("DEBUG getCabDetails: ", data)
+        #TODO : Regex 2xx, 4xx and handle accordingly
+        if re.match('2..',str(r.status_code)):
             if data['status'] == 'accepted':
+                self.request_id = data['request_id']
+
                 message = "Here are the details of the booking...\n Current booking status: {},\nSurge multiplier: {},\nDriver Phone: {},\nRating: {},\nName: {},\nCar Make: {},\nLicense Plate: {},\nPickup ETA: {}" \
                     .format(data['status'], data['surge_multiplier'], data['driver']['phone_number'],
                             data['driver']['rating'], data['driver']['name'], data['vehicle']['make'],
@@ -205,15 +224,18 @@ class Uber:
                 self.notifyUser(message)
                 return True
             elif data['status'] == 'processing':
-                self.debug_acceptRide()
+                self.request_id = data['request_id']
+                print("Request is still being processed, waiting 5 seconds...")
                 time.sleep(5)
-            else:
-                print("Ride not confirmed yet, rechecking again...")
-                message = "Ride not confirmed yet, rechecking again in 20 seconds..."
-                print("DEBUG | FareID: ", self.fare_id)
-                self.notifyUser(message)
-                self.debug_acceptRide()
-                time.sleep(20)
+                return True
+        else:
+            print("Status code: ", str(r.status_code))
+            print("No rides found...")
+            message = "No rides found currently..."
+            print("DEBUG | FareID: ", self.fare_id)
+            print("DEBUG | RequestID:", self.request_id)
+            self.notifyUser(message)
+            time.sleep(10)
 
 
     def debug_acceptRide(self):
@@ -222,7 +244,7 @@ class Uber:
         print("Accepting ride with request no. {}, ".format(self.request_id))
         url = "https://sandbox-api.uber.com/v1.2/sandbox/requests/{}".format(self.request_id)
         r = requests.post(url, data=json.dumps(payload), headers=headers)
-        print("ACCEPT CAB CODE: ", r.status_code)
+        print("ACCEPT CAB RESPONSE CODE: ", r.status_code)
 
 
     def cancelRide(self):
@@ -231,6 +253,7 @@ class Uber:
         print("Cancelling ride with request no. {}, ".format(self.request_id))
         r = requests.post("https://sandbox-api.uber.com/v1.2/requests", data=json.dumps(payload), headers=headers)
         print(r.json())
+
 
 if __name__ == '__main__':
     config_file = '../config/config1.json'
